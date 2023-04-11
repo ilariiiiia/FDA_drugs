@@ -147,7 +147,7 @@ for i in range(11):
 
             for infoDrug in applicantList:
                 if minimize(infoDrug['Trade_Name']) == minimize(brandName):
-                    matches.append([drug, infoDrug])
+                    matches.append({"orig_drug": drug, "info_drug": infoDrug})
                     matchesFound += 1
                     print(colored(0, 255, 0, "[SUCCESS] Found a match!"))
 
@@ -158,3 +158,6 @@ for i in range(11):
         print(f"[INFO] Found {matchesFound} matches")
 
 print(f"Found {len(matches)} matches in total in {time.time() - startTime} s")
+
+with open('matches.json', 'w') as f:
+    json.dump(matches, f, indent=4)
