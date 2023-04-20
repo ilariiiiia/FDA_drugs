@@ -1,9 +1,10 @@
 import contextlib
 import json
+import csv
 
 data = []
 
-applicantDict = {}
+applicantDict: object = {}
 matches = []
 
 def filePath(i):
@@ -12,15 +13,15 @@ def filePath(i):
 def colored(r, g, b, text):
     return f"\033[38;2;{r};{g};{b}m{text} \033[38;2;255;255;255m"
 
-def minimize(name: list[str]) -> str:
-    name = name.upper().split(' ')
-    for elem in ["LTD", "LLC", "CO", "PHARMA", "PHARMACEUTICAL"]:
+def minimize(name: str) -> str:
+    namelist = name.upper().split(' ')
+    for elem in ["LTD", "LLC", "CO", "INC", "INC.", "PHARMA", "PHARMACEUTICAL", "CORP", "COMPANY", "AND", "&", "SUBSIDIARY", "OF", "CORPORATION", "CORP."]:
         with contextlib.suppress(ValueError):
-            name.remove(elem)
-    return '_'.join(name)
+            namelist.remove(elem)
+    return '_'.join(namelist)
 
 def are_similar(n:str, o:str) -> bool:
-    return minimize(n) == minimize(o)
+    return minimize(n) == minimize(o) or minimize(o).startswith(minimize(n)) or minimize(o).endswith(minimize(n))
 
 def get_drug_info():
     with open('assets/drug_info.json') as f:
@@ -38,6 +39,26 @@ def generate_drug_info():
         else:
             applicantDict[minName] = [drug]
 
+def generate_matches_csv():
+    with open('matches.json', 'r') as f:
+        matches = json.load(f)
+
+    with open('output.csv', 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+
+        # Write the header row
+        writer.writerow(list(matches[0].keys()))
+
+        # Write the data rows
+        for item in matches:
+            res = []
+            for k in item.keys():
+                value = item[k]
+                if isinstance(value, str):
+                    value = value.encode('utf-8', errors='replace').decode('utf-8')
+                res.append(item[k])
+            writer.writerow(res)
+
 """
 FILE STRUCTURES:
 
@@ -49,7 +70,7 @@ list[
         "DF;Route":"AEROSOL, FOAM;RECTAL",
         "Trade_Name":"UCERIS",
         "Applicant":"SALIX",
-        "Strength":"2MG\/ACTUATION",
+        "Strength":"2MG/ACTUATION",
         "New Drug Application Type":"N",
         "NDA Application Number":205613,
         "Product_No":1,
@@ -61,7 +82,7 @@ list[
         "Applicant_Full_Name":"SALIX PHARMACEUTICALS INC",
         "LOE Date":null,
         "Patent Expiry Date":null,
-        "Treatment \/ Indication for Use":null
+        "Treatment / Indication for Use":null
     }
 ]
 
@@ -110,11 +131,13 @@ check whether the corresponding drug is the same as the one for the file. If it 
 """
 
 startTime = time.time()
-
+failedName = 0
+notMatch = 0
+foundNotMatch = 0
+startNewFile = startTime
 for i in range(11):
     if i: print(f"[INFO] Finished file {i+1} in time {time.time() - startNewFile}")
-    startNewFile = time.time()
-    print(f"[INFO] Opened file {i+1}")
+    print(f"[INFO] Opening file {i+1}")
     matchesFound = 0
 
     with open(filePath(i+1)) as drugLabel:
@@ -123,41 +146,56 @@ for i in range(11):
 
         totalDrugs = len(drugs)
 
-        startDrugs = time.time()
+        startNewFile = time.time()
 
         for j, drug in enumerate(drugs):
-
-            startDrug = time.time()
 
             try:
                 brandName = drug['openfda']['brand_name'][0]
             except KeyError:
+                failedName += 1
+                notMatch += 1
                 print(colored(255, 0, 0, "[ERROR] Could not find brand name"))
                 continue
 
             try:
                 manufacturer = drug['openfda']['manufacturer_name'][0]
             except KeyError:
+                failedName += 1
+                notMatch += 1
                 print(colored(255, 0, 0, "[ERROR] Could not find manufacturer name"))
                 continue
 
-            applicantList:list = applicantDict.get(minimize(manufacturer))
+            applicantList:list = applicantDict.get(minimize(manufacturer), [])
 
-            applicantList = applicantList or []
+            foundMatch = False
 
             for infoDrug in applicantList:
-                if minimize(infoDrug['Trade_Name']) == minimize(brandName):
-                    matches.append({"orig_drug": drug, "info_drug": infoDrug})
+                if are_similar(infoDrug['Trade_Name'], brandName):
+                    newDrug = infoDrug
+                    newDrug['Dosage_and_administration'] = drug.get('dosage_and_administration', ['No dosage information found'])[0]
+                    newDrug['Indications_and_usage'] = drug.get('indications_and_usage', ['No Indications and Usage information found'])[0]
+                    newDrug['Storage_and_handling'] = drug.get('storage_and_handling', ['No storage and handling information found'])[0]
+                    matches.append(newDrug)
                     matchesFound += 1
+                    foundMatch = True
                     print(colored(0, 255, 0, "[SUCCESS] Found a match!"))
 
-            timeNeeded = time.time() - startDrug
+            if not foundMatch:
+                notMatch += 1
+                foundNotMatch += 1
+
             timeFile = time.time() - startNewFile
-            print(colored(0, 255, 255, f"[INFO] Finished drug n {j}/{totalDrugs} in time {round(timeNeeded, 3)}; average: {round(timeFile / (j+1), 4)}"))
+            print(f"[INFO] Finished drug n {j+1}/{totalDrugs}; average: {round(timeFile / (j+1), 6)}")
         
-        print(f"[INFO] Found {matchesFound} matches")
+        print(colored(0, 255, 0, f"[INFO] Found {matchesFound} matches"))
 
 print(f"Found {len(matches)} matches in total in {time.time() - startTime} s")
+print(colored(255, 0, 0, f"Failed to find name: {failedName}"))
+print(f"Not a match: {notMatch}")
+print(f"Not a match but found its name: {foundNotMatch}")
 
 with open('matches.json', 'w') as f:
     json.dump(matches, f, indent=4)
+
+generate_matches_csv()
