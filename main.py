@@ -46,10 +46,9 @@ def generate_matches_csv():
     with open('output.csv', 'w', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile)
 
-        # Write the header row
+        # header
         writer.writerow(list(matches[0].keys()))
-
-        # Write the data rows
+        
         for item in matches:
             res = []
             for k in item.keys():
